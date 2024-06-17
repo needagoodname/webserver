@@ -7,10 +7,9 @@ heap_timer::heap_timer( int delay )
 
 void time_heap::adjust_timer()
 {
-
     time_t cur = time( NULL );
     cur = cur + 3 * TIMESLOT;
-    p_timer t = std::move(array.begin()->second);
+    auto t = std::move(array.begin()->second);
     t->expire = cur;
     add_timer( t );
     pop_timer();
@@ -27,12 +26,20 @@ time_heap::~time_heap()
     }
 }
 
-void time_heap::add_timer( const p_timer& timer )
+void time_heap::add_timer( p_timer t )
 {
-    {
-        std::lock_guard<std::mutex> locker(mtx_);
-        array.emplace( std::make_pair(timer->expire, timer) );
-    }
+    std::lock_guard<std::mutex> locker(mtx_);
+    array.emplace( std::make_pair(t->expire, t) );
+    // printf( "in add\n" );
+}
+
+void time_heap::add_timer( const int& fd, void(* cb_func)(int, int), const int& tslot )
+{
+    p_timer t = std::make_shared<heap_timer>(tslot);
+    t->sockfd = fd;
+    t->cb_func = cb_func;
+    add_timer( t );
+    // printf( "add end\n" );
 }
 
 void time_heap::pop_timer()

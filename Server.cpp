@@ -1,29 +1,14 @@
-#include <signal.h>
-#include "threadpool.h"
-#include "timeheap.h"
-#include "http_conn.h"
-
-static const int MAX_FD = 65536;   // 最大的文件描述符个数
-static const int MAX_EVENT_NUMBER = 10000;  // 监听的最大的事件数量
-static const int UDP_BUFFER_SIZE = 1024;
-static const int TCP_BUFFER_SIZE = 512;
-int pipefd[2];
-
-extern void addfd( int epollfd, int fd, bool one_shot );
-extern void removefd( int epollfd, int fd );
-extern int setnonblocking( int fd );
-
-http_conn* users = new http_conn[ MAX_FD ];
+#include "Server.h"
 
 //信号处理函数，统一事件源
-void sig_handler(int sig) {
+void Server::sig_handler(int sig) {
     int save_errno = errno;
     int msg = sig;
     send( pipefd[1], (char*)&msg , 1, 0 );
     errno = save_errno;
 }
 
-void addsig(int sig) {
+void Server::addsig(int sig) {
     struct sigaction sa;
     memset( &sa, '\0', sizeof( sa ) );
     sa.sa_handler = sig_handler;
@@ -32,39 +17,38 @@ void addsig(int sig) {
 }
 
 // 处理定时事件
-void time_handler( time_heap* m_time)
+void Server::time_handler( time_heap* m_time)
 {
     m_time->tick();
     alarm( TIMESLOT );
 }
 
 // 定时器回调函数，删除并关闭非活动连接socket上的注册事件
-void cb_func( int epollfd, int sockfd )
+void Server::cb_func( int epollfd, int sockfd )
 {
     cout<<"timecl"<<endl;
     users[sockfd].close_conn();
     close( sockfd );
 }
 
-int main( int argc, char* argv[] ) {
-    
-    if( argc <= 1 ) {
-        printf( "usage: %s port_number\n", basename( argv[0] ) );
-        return 1;
-    }
-
-    int port = atoi( argv[1] );
+Server::Server(const int& p):port(p) {
+    http_conn* users = new http_conn[ MAX_FD ];
     addsig( SIGPIPE );
-
     threadpool< http_conn > pool( 8, 100 );
+    listenfd = socket( PF_INET, SOCK_STREAM, 0 );
 
-    int listenfd = socket( PF_INET, SOCK_STREAM, 0 );
-
-    int ret = 0;
-    struct sockaddr_in address;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_family = AF_INET;
     address.sin_port = htons( port );
+
+    // 创建epoll对象，和事件数组
+    epoll_event *events = new epoll_event[MAX_EVENT_NUMBER];
+    epollfd = epoll_create( 5 );
+}
+
+int Server::run() {
+
+    int ret = 0;
 
     // 端口复用
     int reuse = 1;
@@ -82,10 +66,6 @@ int main( int argc, char* argv[] ) {
         ret = listen( listenfd, 5 );
         assert( ret != -1 );
     }
-
-    // 创建epoll对象，和事件数组
-    epoll_event *events = new epoll_event[MAX_EVENT_NUMBER];
-    int epollfd = epoll_create( 5 );
 
     // 添加到epoll对象中
     addfd( epollfd, listenfd, false );
@@ -143,7 +123,6 @@ int main( int argc, char* argv[] ) {
                 users[connfd].init( connfd, client_address, cur );
             } 
             else if( events[i].events & ( EPOLLRDHUP | EPOLLHUP | EPOLLERR ) ) {
-                cout<<"err"<<endl;
                 users[sockfd].close_conn();
 
             }
@@ -182,7 +161,6 @@ int main( int argc, char* argv[] ) {
                     users[sockfd].last_active = time(NULL);
 
                 } else {
-                    cout<<"readcl"<<endl;
                     users[sockfd].close_conn();
 
                 }
@@ -191,7 +169,6 @@ int main( int argc, char* argv[] ) {
             else if( events[i].events & EPOLLOUT ) {
 
                 if( !users[sockfd].writeFd() ) {
-                    cout<<"writecl"<<endl;
                     users[sockfd].close_conn();
                 }
                 users[sockfd].last_active = time(NULL);
@@ -206,9 +183,11 @@ int main( int argc, char* argv[] ) {
         }
     }
     
+}
+
+Server::~Server() {
     close( epollfd );
     close( listenfd );
     delete [] users;
     delete [] events;
-    return 0;
 }

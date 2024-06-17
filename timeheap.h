@@ -26,7 +26,7 @@ public:
 
 };
 
-// 时间堆
+// 时间器管理
 class time_heap
 {   
 public:
@@ -35,7 +35,7 @@ public:
     time_heap( int, http_conn* );
     ~time_heap();
     void adjust_timer();
-    void add_timer( const p_timer& );
+    void add_timer( const int& , void(*cb_func)(int, int), const int& );
     void tick();
     bool empty() const;
 
@@ -50,6 +50,7 @@ private:
     http_conn* user;
     std::set<std::pair<time_t, p_timer>, cmp> array;
     void pop_timer();
+    void add_timer( p_timer );
 };
 
 #endif
